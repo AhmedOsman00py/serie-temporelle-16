@@ -7,3 +7,5 @@ L'objectif est d'étudier la série temporelle en estimant la tendance, la saiso
 ## Prédiction
 
 ![prediction_serie_16](https://user-images.githubusercontent.com/78887980/179837914-939df42a-d4b5-4db6-958d-8cdb6fa1378a.png)
+
+sachant que les points verts sont les vraies valeurs de la série durant les 6 derniers mois et les points rouges sont les prédictions de ces valeurs.
