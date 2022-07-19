@@ -1,0 +1,286 @@
+---
+title: "Étude de la série temporelle 16"
+author: "OSMAN Ahmed"
+date: "2/9/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(timeSeries)
+```
+
+## Importation :
+
+```{r}
+data <- scan("serie_16.dat")
+
+# transformation en série temporelle
+x <- ts(data[-205], frequency = 12, start = c(2000, 1), end = c(2016, 12))
+```
+
+## Décomposition de la série temporelle :   
+
+### Éstimation de la tendance m :
+
+On crée un vecteur **`m`** tel que :    
+  - les 6 premières et dernières coordonnées valent **`NA`**.   
+  - sinon :
+  
+$$
+  m_{t}=\frac{1}{12}\left(\frac{1}{2} X_{t-6}+\sum_{i=t-5}^{t+5} X_{i}+\frac{1}{2} X_{t+6}\right)
+$$
+
+
+```{r}
+# Fonction qui estime la tendance
+tendance_estim <- function(X) {
+  m <- rep(NA, times = length(X))
+  
+  for(i in 7:(length(X)-6)) 
+    m[i] <- (0.5*X[i-6] + sum(X[(i-5):(i+5)]) + 0.5*X[i+6])/12
+  
+  return(ts(m, frequency = 12))
+}
+
+# Estimation de notre serie 
+estimation_m <- tendance_estim(x)
+estimation_m
+```
+
+### Estimation de la saisonnalité s :
+
+- On crée un vecteur $w_k$ qu'on le recentra pour estimer la saisonnalité, avec $w_k$ :
+
+$$
+w_{k}=\frac{1}{17} \sum_{j=1}^{17}\left(X_{k+12(j-1)}-m_{k+12(j-1)}\right)
+$$
+
+```{r}
+saisonalite_estim <- function(X) {
+  m <- tendance_estim(X)
+  w <- rep(NA, times = 12)
+  
+  for (k in 1:12) {
+    ind <- k+12*((1:17)-1)
+    w[k] <- mean(x[ind] - m[ind], na.rm=T)
+  }
+  
+  s <- w - mean(w)
+  s <- ts(rep(s, 15), frequency = 12)
+  return(s)
+}
+
+estimation_s <- saisonalite_estim(x)
+estimation_s
+# plot(estimation_s)
+```
+
+### Estimation du bruit :
+
+On estime le bruit en retranchant la tendance et la saisonnalité de notre série temporelle.
+
+```{r, warning = FALSE}
+# Bruit
+estimation_z <- c(x) - c(estimation_m) - c(estimation_s)
+estimation_z <- ts(estimation_z)
+estimation_z
+
+# décomposition du bruit en base train et test.
+n <- length(na.omit(estimation_z))
+
+# on choisit les 6 dernière valeurs qu'on prédira
+z_test <- window(estimation_z, 187, 192)
+
+# on prend le reste comme la base d'apprentissage
+z_train <- window(estimation_z, 1, 186)
+```
+
+### Comparaison avec la fonction decompose
+
+```{r}
+dec <- decompose(x)
+
+par(mfrow = c(3, 2))
+
+# comparaison de la tendance m :
+plot(estimation_m)
+plot(dec$trend)
+
+# comparaison de la saisonnalité s :
+plot(estimation_s)
+plot(dec$seasonal)
+
+# comparaison du bruit z :
+plot(estimation_z)
+plot(dec$random)
+```
+
+
+
+
+```{r}
+ts.plot(data)
+#plot.ts(data)
+monthplot(data)
+lag.plot(rev(data), 12, layout = c(3, 4), diag.col = 2)
+```
+
+---
+
+```{r}
+dec <- decompose(x)
+plot(dec)
+```
+
+```{r}
+# stationnarité des résidus Z
+acf(na.omit(estimation_z))
+
+# paril qu'avec z_train 
+acf(na.omit(z_train))
+
+# acf(na.omit(dec$random))
+```
+  
+On remarque que d'après cette figure que la stationnarité Z des résidus est bien vérifiée.
+
+## Proposition et estimation des modèles ARMA pour le résidu
+  
+```{r}
+par(mfrow = c(1, 2))
+
+# Pour l'estimation de MA
+acf(na.omit(estimation_z)) # MA(5)
+
+# Pour l'estimation de AR
+pacf(na.omit(estimation_z)) # AR(6)
+```
+
+D'après les graphes précédents, on peut proposer un modèle ARMA(6, 5).
+
+On procedera par la méthode backward et on enlevera les derniers coefficients non significatifs.
+
+```{r}
+modele1 <- arima(na.omit(z_train), order = c(6, 0, 5))
+modele1
+```
+
+### Testons maintenant la blancheur des résidus :
+
+```{r}
+acf(modele1$residuals)
+```
+
+On voit d'après le graphique que les résidus sont corrélés (le 19ème individu), ainsi on peut constater que les résidus ne sont pas blancs, on rejette donc le modèle.
+
+Proposons un autre modèle : ARMA(5, 5)
+
+```{r}
+modele2 <- arima(na.omit(z_train), order = c(5, 0, 5))
+modele2
+```
+
+### Testons maintenant la blancheur des résidus :
+
+```{r}
+acf(modele2$residuals)
+```
+
+On voit d’après le graphique que les résidus ne sont pas corrélés, ainsi on peut constater que les résidus sont blancs.
+
+### Testons la significativité des coefficients
+
+```{r}
+confint(modele2)
+```
+
+On remarque bien que 0 appartient à l'intervalle de confiance des estimateurs : ar1, ar3, ar5, ma1, ma3.
+ainsi ces coefficients ne sont pas significatifs.
+
+On peut enlever le coefficient ar5 et donc proposer un nouveau modèle ARMA(4, 5)
+
+```{r}
+modele3 <- arima(na.omit(z_train), order = c(4, 0, 5))
+
+acf(modele3$residuals)
+```
+  
+On voit d’après le graphique que les résidus ne sont pas corrélés, ainsi on peut constater que les résidus sont blancs.
+
+
+### Testons la significativité des coefficients
+
+```{r}
+confint(modele3)
+```
+
+On remarque bien que 0 n'appartient à l'intervalle de confiance des estimateurs : ar4 et ma5
+ainsi ces coefficients sont pas significatifs.
+
+On peut aussi proposer un autre modèle comme MA(5) :
+
+```{r}
+modeleMA <- arima(na.omit(z_train), order = c(0, 0, 5))
+
+acf(modeleMA$residuals)
+```
+
+On voit d'après le graphique que les résidus sont corrélés (l'avant dernier individu), ainsi on peut constater que les résidus ne sont pas blancs, on rejette donc le modèle.
+
+On pouvait aussi proposer un modèle AR(6) :
+
+```{r}
+modeleAR <- arima(na.omit(z_train), order = c(6, 0, 0))
+
+acf(modeleAR$residual)
+```
+
+Les résidus ne sont pas blancs, on rejette donc le modèle.
+
+### Conclusion
+
+On rejette tous les modèles sauf le modèle : ARMA(4, 5) "modele3".
+
+
+## Prédiction
+
+```{r}
+predict(modele3, n.ahead = 6)
+z_test
+```
+
+### Prédiction des bruits
+
+```{r}
+plot(na.omit(z_train), type = "o", pch = 19)
+points(predict(modele3, n.ahead = 6)$pred, col = 2, type = "o", pch = 19)
+points(z_test, col = 3, type = "o", pch = 19)
+```
+
+### Prédiction de la série
+
+```{r}
+prediction <- ts(predict(modele3, n.ahead = 6)$pred, start = c(2016, 1), end = c(2016, 6), frequency = 12)
+
+estimation_m <- ts(estimation_m, start = c(2000, 1), end = c(2016, 12), frequency = 12)
+estimation_s <- ts(estimation_s, start = c(2000, 1), end = c(2016, 12), frequency = 12)
+
+plot(window(x, start = c(2000, 1), end = c(2015, 12)), type = "o", pch = 19)
+points(prediction + 
+         window(estimation_s, start = c(2016, 1), end = c(2016, 6)) + 
+         window(estimation_m, start = c(2016, 1), end = c(2016, 6)),
+                col = 2, type = "o", pch = 19)
+points(window(x, start = c(2016, 1), end = c(2016, 6)), col = 3, type = "o", pch = 19)
+```
+
+```{r}
+ecart <- var(c(prediction) - c(z_test))
+sqrt(ecart)
+```
+
+Si le graphe n'est pas trop clair, regarder l'image **prediction_serie_16.png** qui se trouve dans le même fichier.
+
+
